@@ -1,4 +1,4 @@
-# Recoup — Revenue Recovery Agent
+# Recoup: Revenue Recovery Agent
 
 A full-stack, deployable version of the AI revenue recovery dashboard. The React frontend connects to a Python batch engine backend via REST API, with Gemini for AI judgment calls.
 
@@ -6,21 +6,21 @@ A full-stack, deployable version of the AI revenue recovery dashboard. The React
 
 ```
 Browser
-  ├─→ GET /              Express (Node :3000)  →  React SPA
-  ├─→ POST /api/gemini   Express               →  Gemini REST API
-  └─→ POST /api/batch    Express               →  Python FastAPI (:8000) → engine
+  ├─→ GET/              Express (Node :3000)  ->  React SPA
+  ├─→ POST/api/gemini   Express               ->  Gemini REST API
+  └─→ POST/api/batch    Express               ->  Python FastAPI (:8000) -> engine
 ```
 
-- **Frontend** (`src/`) — React + TypeScript + Vite + Tailwind. Runs the full engine in-browser by default; can switch to Python engine mode via the "Engine" toggle in the dashboard.
-- **Backend** (`backend/`) — Pure Python 3 engine (zero stdlib dependencies). Wrapped in a thin FastAPI HTTP layer for production use.
-- **Server** (`server.ts`) — Express: serves the built SPA, proxies Gemini calls, proxies batch requests to Python.
+- **Frontend** (`src/`):- React + TypeScript + Vite + Tailwind. Runs the full engine in-browser by default; can switch to Python engine mode via the "Engine" toggle in the dashboard.
+- **Backend** (`backend/`):- Pure Python 3 engine (zero stdlib dependencies). Wrapped in a thin FastAPI HTTP layer for production use.
+- **Server** (`server.ts`):- Express: serves the built SPA, proxies Gemini calls, proxies batch requests to Python.
 
 ---
 
-## Quick Start — Docker Compose (Recommended)
+## Quick Start - Docker Compose (Recommended)
 
 ```bash
-# 1. Clone / copy this folder, then:
+# 1. Clone/copy this folder, then:
 cp .env.example .env
 # Edit .env and set your GEMINI_API_KEY
 
@@ -45,7 +45,7 @@ cp ../.env.example ../.env   # set GEMINI_API_KEY (and PYTHON_API_URL if running
 npm run dev            # starts Express + Vite HMR on http://localhost:3000
 ```
 
-### Python batch engine (optional — needed for Python engine mode)
+### Python batch engine
 
 Requires **Python 3.10+**.
 
@@ -72,7 +72,7 @@ NODE_ENV=production node dist/server.cjs
 
 | Variable | Required | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | Yes | Gemini API key — used by Express for `/api/gemini` proxy and by Python for LLM judgment calls. Get one free at [aistudio.google.com](https://aistudio.google.com/apikey). |
+| `GEMINI_API_KEY` | Yes | Gemini API key is used by Express for `/api/gemini` proxy and by Python for LLM judgment calls. Get one free at [aistudio.google.com](https://aistudio.google.com/apikey). |
 | `PORT` | No | Port for the Node/Express server (default: `3000`). |
 | `PYTHON_API_URL` | No | URL of the Python FastAPI service. Set to `http://localhost:8000` for local dev, or `http://api:8000` inside Docker. If unset, the "Python" engine toggle still appears but returns a graceful error and falls back to browser mode. |
 
@@ -80,10 +80,10 @@ NODE_ENV=production node dist/server.cjs
 
 ## Features
 
-- **Landing page** → Auth page → Splash → Dashboard (all existing design preserved exactly)
+- **Landing page** -> Auth page -> Splash -> Dashboard (all existing design preserved exactly)
 - **Dashboard tabs**: Overview · Cases · Escalation Queue · Policy Engine · Policy Lab · AI Judgment Lab
 - **Engine toggle**: Run batch in-browser (JS engine, instant) or via Python (authoritative engine)
-- **AI Judgment Lab**: Three real Gemini API calls — diagnose ambiguous decline, classify B2B reply, draft outreach copy
+- **AI Judgment Lab**: Three real Gemini API calls - diagnose ambiguous decline, classify B2B reply, draft outreach copy
 - **Audit exports**: Download `audit_log.json` and `cases.csv` from any batch run
 - **Docker Compose**: One-command production deployment
 
@@ -101,4 +101,4 @@ python3 run_batch.py --n 200 --seed 42
 python3 -m unittest discover -s tests -v
 ```
 
-No pip install needed — the engine is pure Python 3 stdlib. Only `backend/requirements.txt` (FastAPI + uvicorn) is needed for the HTTP wrapper.
+No pip install needed. Only `backend/requirements.txt` (FastAPI + uvicorn) is needed for the HTTP wrapper.
