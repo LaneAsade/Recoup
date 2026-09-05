@@ -1355,21 +1355,21 @@ function GeminiKeyPanel({ apiKey, setApiKey, model, setModel }) {
   );
 }
 
-function AIJudgmentLab() {
+function AIJudgmentLab({ results: batchResults = null }: { results?: any[] | null }) {
   const [model, setModel] = useState(GEMINI_DEFAULT_MODEL);
-  const [results, setResults] = useState({});
+  const [results, setResults] = useState<any>({});
 
-  const run = useCallback(async (id, system, user, maxTokens, formatter) => {
-    setResults((p) => ({ ...p, [id]: { loading: true } }));
+  const run = useCallback(async (id: string, system: string, user: string, maxTokens: number, formatter?: (r: string) => string) => {
+    setResults((p: any) => ({ ...p, [id]: { loading: true } }));
     try {
       const raw = await callGemini(model.trim() || GEMINI_DEFAULT_MODEL, system, user, maxTokens);
-      setResults((p) => ({ ...p, [id]: { data: formatter ? formatter(raw) : raw } }));
-    } catch (e) {
-      setResults((p) => ({ ...p, [id]: { error: e.message || "Request failed." } }));
+      setResults((p: any) => ({ ...p, [id]: { data: formatter ? formatter(raw) : raw } }));
+    } catch (e: any) {
+      setResults((p: any) => ({ ...p, [id]: { error: e.message || "Request failed." } }));
     }
   }, [model]);
 
-  const formatJSON = (raw) => {
+  const formatJSON = (raw: string) => {
     try {
       const parsed = JSON.parse(stripFences(raw));
       return Object.entries(parsed).map(([k, v]) => {
@@ -1380,32 +1380,97 @@ function AIJudgmentLab() {
     } catch { return raw; }
   };
 
+  const cases = batchResults || [];
+
   // Scenario A - diagnose an ambiguous repeated decline
+  const promptA = useMemo(() => {
+    let match = cases.find(c => c.event.category === "payment_failure" && c.attempts.some((a: any) => a.diagnosis?.method === "llm_fallback_heuristic"));
+    if (!match) {
+      match = cases.find(c => c.event.category === "payment_failure" && c.event.signal?.declineCode === "do_not_honor" && c.attempts.length >= 2);
+    }
+    if (match) {
+      const tenure = match.event.signal?.customerTenureMonths || 0;
+      const amount = match.event.amount;
+      const attempts = match.attempts.length;
+      const gateway = match.event.signal?.gateway || "Razorpay";
+      const code = match.event.signal?.declineCode || "do_not_honor";
+      return {
+         text: `Customer tenure: ${tenure} months. Plan amount: INR ${amount.toFixed(0)}. Decline code: ${code}, repeated across ${attempts} attempts. Gateway: ${gateway}.`,
+         id: match.event.id
+      };
+    }
+    return {
+      text: "Customer tenure: 14 months. Plan amount: INR 2999. Decline code: do_not_honor, repeated across 3 attempts. Gateway: Razorpay.",
+      id: null
+    };
+  }, [cases]);
+
   const runA = () => run("a",
     'You are a payments risk analyst. Given a repeating ambiguous card decline pattern, decide whether to keep retrying automatically, ask the customer to update their card, or escalate to a human. Respond ONLY with JSON, no other text, no markdown fences: {"root_cause": str, "confidence": float 0-1, "rationale": str (<=30 words), "recommended_action": "retry_payment"|"request_card_update"|"escalate_human", "never_retry": bool, "needs_human": bool}',
-    "Customer tenure: 14 months. Plan amount: INR 2999. Decline code: do_not_honor, repeated across 3 attempts. Gateway: Razorpay.",
+    promptA.text,
     400, formatJSON);
 
   // Scenario B - classify a B2B reply
+  const promptB = useMemo(() => {
+    const match = cases.find(c => c.event.category === "receivable_overdue" && c.event.signal?.customerReplyText);
+    if (match) {
+      return {
+        text: match.event.signal.customerReplyText,
+        id: match.event.id
+      };
+    }
+    return {
+      text: "Facing a temporary cash crunch, can we get 15 more days? We've always paid on time before.",
+      id: null
+    };
+  }, [cases]);
+
   const runB = () => run("b",
     'Classify a B2B accounts-receivable customer reply. Respond ONLY with JSON, no other text, no markdown fences: {"intent": "promise_to_pay"|"dispute"|"hardship"|"other", "confidence": float 0-1, "rationale": str (<=25 words), "promised_date_hint": str or null}',
-    "Facing a temporary cash crunch, can we get 15 more days? We've always paid on time before.",
+    promptB.text,
     300, formatJSON);
 
   // Scenario C - draft a message, with live controls
   const [tone, setTone] = useState(2);
   const [locale, setLocale] = useState("en");
   const [cat, setCat] = useState("receivable_overdue");
-  const sampleByCat = {
-    payment_failure: { name: "Arjun", amount: 2999, detail: "your Pro plan", reason: "insufficient funds" },
-    checkout_abandonment: { name: "Meera", amount: 4200, detail: "3 items", reason: "cart abandoned at payment details" },
-    receivable_overdue: { name: "Kestrel Foods", amount: 185000, detail: "45 days overdue", reason: "firm-stage follow-up" },
-  };
+  
+  const promptC = useMemo(() => {
+    const match = cases.find(c => c.event.category === cat);
+    if (match) {
+      const e = match.event;
+      let detail = "";
+      let reason = "";
+      if (cat === "payment_failure") {
+        detail = e.signal?.subscriptionPlan || "subscription";
+        reason = (e.signal?.declineCode || "failed").replace(/_/g, " ");
+      } else if (cat === "checkout_abandonment") {
+        detail = `${e.signal?.cartItemCount || 1} items`;
+        reason = `cart abandoned at ${e.signal?.dropoffStage || "checkout"}`;
+      } else {
+        detail = `${e.signal?.daysOverdue || 30} days overdue`;
+        reason = `${e.signal?.agingStage || "standard"} follow-up`;
+      }
+      return {
+        name: e.customerName,
+        amount: e.amount,
+        detail,
+        reason,
+        id: e.id
+      };
+    }
+    const sampleByCat: any = {
+      payment_failure: { name: "Arjun", amount: 2999, detail: "your Pro plan", reason: "insufficient funds" },
+      checkout_abandonment: { name: "Meera", amount: 4200, detail: "3 items", reason: "cart abandoned at payment details" },
+      receivable_overdue: { name: "Kestrel Foods", amount: 185000, detail: "45 days overdue", reason: "firm-stage follow-up" },
+    };
+    return { ...sampleByCat[cat], id: null };
+  }, [cases, cat]);
+
   const runC = () => {
-    const s = sampleByCat[cat];
     run("c",
       "Write a short (<=45 words), respectful revenue-recovery outreach message for a customer. Never sound threatening, always offer help. Match the requested tone tier and language. Respond with the message text only - no preamble, no quotes, no markdown.",
-      `Category: ${cat}. Customer: ${s.name}. Amount: INR ${s.amount}. Detail: ${s.detail}. Reason: ${s.reason}. Tone tier (1=friendly nudge, 4=final notice before human handoff): ${tone}. Language: ${locale === "hi-en" ? "Hinglish (Roman script, casual code-mixed Hindi/English)" : "English"}.`,
+      `Category: ${cat}. Customer: ${promptC.name}. Amount: INR ${promptC.amount}. Detail: ${promptC.detail}. Reason: ${promptC.reason}. Tone tier (1=friendly nudge, 4=final notice before human handoff): ${tone}. Language: ${locale === "hi-en" ? "Hinglish (Roman script, casual code-mixed Hindi/English)" : "English"}.`,
       150);
   };
 
@@ -1420,17 +1485,20 @@ function AIJudgmentLab() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <LabCard icon={Sparkles} title="Diagnose an ambiguous decline" blurb="A subscription payment keeps failing with a decline code that gives no detail. Worth more patience, or a human look?">
+          <div className="text-[11px] text-stone-500 mb-3">{promptA.id ? `Using live case ${promptA.id} from your last batch` : "Using example data — no matching case in your last batch"}</div>
           <button className={btnCls} onClick={runA} disabled={results.a?.loading}><Play size={12} /> Diagnose with Gemini</button>
           <ResultBox state={results.a} />
         </LabCard>
 
         <LabCard icon={MessageSquare} title="Classify a customer reply" blurb="A finance manager replied to an overdue-invoice email. Promise to pay, dispute, or hardship - each routes differently.">
-          <div className="text-xs text-stone-400 italic bg-stone-950 border border-stone-800 rounded-lg p-2.5 mb-3">&ldquo;Facing a temporary cash crunch, can we get 15 more days? We&rsquo;ve always paid on time before.&rdquo;</div>
+          <div className="text-[11px] text-stone-500 mb-2">{promptB.id ? `Using live case ${promptB.id} from your last batch` : "Using example data — no matching case in your last batch"}</div>
+          <div className="text-xs text-stone-400 italic bg-stone-950 border border-stone-800 rounded-lg p-2.5 mb-3">&ldquo;{promptB.text}&rdquo;</div>
           <button className={btnCls} onClick={runB} disabled={results.b?.loading}><Play size={12} /> Classify with Gemini</button>
           <ResultBox state={results.b} />
         </LabCard>
 
         <LabCard icon={CreditCard} title="Draft the outreach message" blurb="Pick a category, tone, and language - Gemini writes the actual copy that would go out.">
+          <div className="text-[11px] text-stone-500 mb-3">{promptC.id ? `Using live case ${promptC.id} from your last batch` : "Using example data — no matching case in your last batch"}</div>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {Object.entries(CATEGORY_LABEL).map(([k, v]) => <button key={k} className={segCls(cat === k)} onClick={() => setCat(k)}>{v}</button>)}
           </div>
@@ -1654,7 +1722,7 @@ export function Dashboard({ onExit }: { onExit?: () => void }) {
             )}
             {tab === "lab" && (
               <motion.div key="lab" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
-                <AIJudgmentLab />
+                <AIJudgmentLab results={results} />
               </motion.div>
             )}
           </AnimatePresence>
